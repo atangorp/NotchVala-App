@@ -83,6 +83,33 @@ class LyricsEngine {
   }
 
   /**
+   * Clean artist name (remove featured artists, collaborations, etc.)
+   */
+  cleanArtist(artist) {
+    if (!artist) return '';
+    return artist
+      .split(',')[0]
+      .split('&')[0]
+      .split(' feat.')[0]
+      .split(' ft.')[0]
+      .trim();
+  }
+
+  /**
+   * Clean track title (remove tags like - Remastered, feat., etc.)
+   */
+  cleanTitle(title) {
+    if (!title) return '';
+    return title
+      .replace(/\s*[\(\[](feat\.|ft\.|with|remaster|live|radio|deluxe|version|edit|bonus).*?[\)\]]/gi, '')
+      .replace(/\s*-\s*(feat\.|ft\.|with|remaster|live|radio|deluxe|version|edit|bonus).*?$/gi, '')
+      .replace(/\s*-\s*\d{4}\s*remaster.*?$/gi, '')
+      .replace(/\s*-\s*remastered.*?$/gi, '')
+      .replace(/\s*-\s*single version.*?$/gi, '')
+      .trim();
+  }
+
+  /**
    * Create a cache key from title & artist
    */
   getCacheKey(title, artist) {
@@ -90,12 +117,13 @@ class LyricsEngine {
   }
 
   /**
-   * Fetch synced lyrics from LRCLIB
+   * Fetch synced lyrics from LRCLIB with multi-stage fallback
    * @param {string} title
    * @param {string} artist
    * @param {string} query
+   * @param {number} duration
    */
-  async getLyrics({ title, artist, query }) {
+  async getLyrics({ title, artist, query, duration }) {
     const cacheKey = this.getCacheKey(title, artist);
 
     // 1. Check in-memory cache
@@ -108,39 +136,67 @@ class LyricsEngine {
     try {
       if (fs.existsSync(cacheFilePath)) {
         const fileData = JSON.parse(fs.readFileSync(cacheFilePath, 'utf8'));
-        this.cache.set(cacheKey, fileData);
-        return fileData;
+        // Only use cache if it found lyrics or is explicitly marked
+        if (fileData.hasLyrics) {
+          this.cache.set(cacheKey, fileData);
+          return fileData;
+        }
       }
     } catch (e) {
       // cache miss
     }
 
     let lyricData = null;
+    const cArtist = this.cleanArtist(artist);
+    const cTitle = this.cleanTitle(title);
 
-    // 3. Try direct lookup if artist and title are available
+    // Stage 1: Direct exact lookup
     if (artist && title && artist.toLowerCase() !== 'youtube') {
       const url = `https://lrclib.net/api/get?artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`;
       const res = await this.httpGet(url);
-      if (res && (res.syncedLyrics || res.plainLyrics)) {
+      if (res && res.syncedLyrics) {
+        lyricData = res;
+      } else if (res && res.plainLyrics && !lyricData) {
         lyricData = res;
       }
     }
 
-    // 4. Try search if not found or YouTube query
-    if (!lyricData) {
-      const searchQuery = query || `${artist || ''} ${title || ''}`.trim();
-      if (searchQuery) {
-        const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(searchQuery)}`;
+    // Stage 2: Direct lookup with cleaned title & artist if Stage 1 did not have synced lyrics
+    if ((!lyricData || !lyricData.syncedLyrics) && (cArtist !== artist || cTitle !== title) && cArtist && cTitle) {
+      const url = `https://lrclib.net/api/get?artist_name=${encodeURIComponent(cArtist)}&track_name=${encodeURIComponent(cTitle)}`;
+      const res = await this.httpGet(url);
+      if (res && res.syncedLyrics) {
+        lyricData = res;
+      } else if (res && res.plainLyrics && !lyricData) {
+        lyricData = res;
+      }
+    }
+
+    // Stage 3: Query search endpoint for synced lyrics
+    if (!lyricData || !lyricData.syncedLyrics) {
+      const queries = [
+        `${cArtist} ${cTitle}`.trim(),
+        `${artist || ''} ${title || ''}`.trim(),
+        query
+      ].filter(Boolean);
+
+      for (const q of queries) {
+        const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(q)}`;
         const searchRes = await this.httpGet(searchUrl);
         if (Array.isArray(searchRes) && searchRes.length > 0) {
-          // Find first result with syncedLyrics
-          const withSync = searchRes.find(item => item.syncedLyrics);
-          lyricData = withSync || searchRes[0];
+          // Prefer item with syncedLyrics
+          const withSync = searchRes.find(item => item.syncedLyrics && item.syncedLyrics.trim().length > 0);
+          if (withSync) {
+            lyricData = withSync;
+            break;
+          } else if (!lyricData && searchRes[0].plainLyrics) {
+            lyricData = searchRes[0];
+          }
         }
       }
     }
 
-    if (!lyricData) {
+    if (!lyricData || (!lyricData.syncedLyrics && !lyricData.plainLyrics)) {
       return {
         hasLyrics: false,
         isSynced: false,
@@ -149,16 +205,16 @@ class LyricsEngine {
       };
     }
 
-    const isSynced = Boolean(lyricData.syncedLyrics);
-    const parsedLines = isSynced ? this.parseLRC(lyricData.syncedLyrics) : [];
+    const hasRealSync = Boolean(lyricData.syncedLyrics && lyricData.syncedLyrics.trim().length > 0);
+    const parsedLines = hasRealSync ? this.parseLRC(lyricData.syncedLyrics) : [];
 
     const formatted = {
       hasLyrics: true,
-      isSynced,
+      isSynced: hasRealSync,
       trackName: lyricData.trackName || title,
       artistName: lyricData.artistName || artist,
       albumName: lyricData.albumName || '',
-      duration: lyricData.duration || 0,
+      duration: lyricData.duration || duration || 0,
       lines: parsedLines,
       plain: lyricData.plainLyrics || ''
     };

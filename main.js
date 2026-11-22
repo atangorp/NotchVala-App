@@ -9,16 +9,11 @@ let tray = null;
 let isGhostMode = false;
 
 // Dynamic dimensions: compact height matches the exact macOS menu bar height (30px on M1)
-// Perfectly flush at y = 0, zero offside into the application window below.
+// Perfectly flush at y = 0 against top screen bezel with zero offside into application windows
 function getNotchDimensions() {
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const menuBarHeight = (primaryDisplay && primaryDisplay.workArea && primaryDisplay.workArea.y > 0)
-    ? primaryDisplay.workArea.y
-    : 30;
-
   return {
     compactWidth: 340,
-    compactHeight: menuBarHeight,
+    compactHeight: 30, // Exact menu bar height (30px)
     expandedWidth: 460,
     expandedHeight: 155
   };
@@ -44,6 +39,7 @@ function createNotchWindow() {
     resizable: false,
     skipTaskbar: true,
     hasShadow: false, // ZERO SHADOW on window
+    roundedCorners: false, // CRITICAL: Disables macOS Big Sur+ NSWindow corner mask (prevents pill/capsule rounding)
     type: 'panel', // NSPanel sits flush over macOS top bezel
     enableLargerThanScreen: true,
     webPreferences: {
@@ -70,6 +66,11 @@ function createNotchWindow() {
     }
   });
 
+  const config = loadConfig();
+  if (typeof config.offset === 'number') {
+    tracker.setOffset(config.offset);
+  }
+
   tracker.start();
 
   mainWindow.on('closed', () => {
@@ -91,23 +92,55 @@ function updateWindowSize(isExpanded) {
   mainWindow.setBounds({ x, y: 0, width: targetWidth, height: targetHeight });
 }
 
-function createTray() {
-  // Use Zoomed/Cropped Forvala logo as native macOS Template Image
-  const trayIconPath = path.join(__dirname, 'assets', 'trayTemplate.png');
-  let icon;
+const fs = require('fs');
+
+function getConfigPath() {
+  return path.join(app.getPath('userData'), 'settings.json');
+}
+
+function loadConfig() {
   try {
-    icon = nativeImage.createFromPath(trayIconPath);
-    if (!icon.isEmpty()) {
-      icon.setTemplateImage(true);
-    } else {
-      icon = nativeImage.createFromNamedImage('NSStatusAvailable');
+    const configPath = getConfigPath();
+    if (fs.existsSync(configPath)) {
+      return JSON.parse(fs.readFileSync(configPath, 'utf8'));
     }
   } catch (e) {
-    icon = nativeImage.createFromNamedImage('NSStatusAvailable');
+    // ignore
   }
+  return { offset: 0.8 };
+}
 
-  tray = new Tray(icon);
-  tray.setToolTip('NotchVala');
+function saveConfig(cfg) {
+  try {
+    const configPath = getConfigPath();
+    const existing = loadConfig();
+    const updated = { ...existing, ...cfg };
+    fs.writeFileSync(configPath, JSON.stringify(updated, null, 2), 'utf8');
+  } catch (e) {
+    // ignore
+  }
+}
+
+function setGlobalOffset(offset) {
+  const rounded = parseFloat(Number(offset).toFixed(1));
+  tracker.setOffset(rounded);
+  saveConfig({ offset: rounded });
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('offset-updated', rounded);
+  }
+  updateTrayMenu();
+}
+
+function updateTrayMenu() {
+  if (!tray) return;
+  const currentOffset = tracker.offset;
+  const offsetPresets = [
+    { label: '0.0s (Tepat Waktu / Pas Audio)', val: 0.0 },
+    { label: '0.5s Lebih Cepat', val: 0.5 },
+    { label: '0.8s Lebih Cepat (Default)', val: 0.8 },
+    { label: '1.0s Lebih Cepat', val: 1.0 },
+    { label: '1.5s Lebih Cepat', val: 1.5 }
+  ];
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -115,6 +148,15 @@ function createTray() {
       enabled: false
     },
     { type: 'separator' },
+    {
+      label: `Kecepatan Lirik: ${currentOffset >= 0 ? '+' : ''}${currentOffset.toFixed(1)}s`,
+      submenu: offsetPresets.map(preset => ({
+        label: preset.label,
+        type: 'radio',
+        checked: Math.abs(currentOffset - preset.val) < 0.05,
+        click: () => setGlobalOffset(preset.val)
+      }))
+    },
     {
       label: 'Ghost Mode (Klik Tembus Pandang)',
       type: 'checkbox',
@@ -142,6 +184,26 @@ function createTray() {
   ]);
 
   tray.setContextMenu(contextMenu);
+}
+
+function createTray() {
+  // Use Zoomed/Cropped Forvala logo as native macOS Template Image
+  const trayIconPath = path.join(__dirname, 'assets', 'trayTemplate.png');
+  let icon;
+  try {
+    icon = nativeImage.createFromPath(trayIconPath);
+    if (!icon.isEmpty()) {
+      icon.setTemplateImage(true);
+    } else {
+      icon = nativeImage.createFromNamedImage('NSStatusAvailable');
+    }
+  } catch (e) {
+    icon = nativeImage.createFromNamedImage('NSStatusAvailable');
+  }
+
+  tray = new Tray(icon);
+  tray.setToolTip('NotchVala');
+  updateTrayMenu();
 }
 
 function toggleGhostMode(enabled) {
@@ -177,8 +239,12 @@ ipcMain.handle('player-prev', async () => {
 });
 
 ipcMain.handle('set-offset', (event, offset) => {
-  tracker.setOffset(offset);
-  return offset;
+  setGlobalOffset(offset);
+  return tracker.offset;
+});
+
+ipcMain.handle('get-offset', () => {
+  return tracker.offset;
 });
 
 ipcMain.handle('set-manual-track', async (event, song) => {

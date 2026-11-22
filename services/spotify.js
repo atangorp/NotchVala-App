@@ -1,18 +1,30 @@
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 
 /**
  * Spotify macOS Service via AppleScript
- * Queries the native Spotify Desktop client for current track, playback state, and position.
+ * Queries native Spotify Desktop client for current track, playback state, and position.
+ * Uses direct osascript without System Events to avoid macOS permission hangs.
  */
 class SpotifyService {
   /**
-   * Execute AppleScript string asynchronously
+   * Fast check if Spotify is currently running in background (takes ~2ms, no AppleScript permissions needed)
    */
-  static runScript(script) {
+  static isRunning() {
     return new Promise((resolve) => {
-      exec(`osascript -e '${script.replace(/'/g, "'\\''")}'`, (err, stdout) => {
+      execFile('pgrep', ['-x', 'Spotify'], (err, stdout) => {
+        resolve(!err && Boolean(stdout && stdout.trim()));
+      });
+    });
+  }
+
+  /**
+   * Execute AppleScript string asynchronously with strict timeout
+   */
+  static runScript(script, timeoutMs = 1500) {
+    return new Promise((resolve) => {
+      execFile('osascript', ['-e', script], { timeout: timeoutMs }, (err, stdout) => {
         if (err) return resolve(null);
-        resolve(stdout.trim());
+        resolve(stdout ? stdout.trim() : null);
       });
     });
   }
@@ -22,35 +34,32 @@ class SpotifyService {
    * @returns {Promise<Object|null>}
    */
   static async getCurrentPlayback() {
+    const running = await this.isRunning();
+    if (!running) return null;
+
     const script = `
-tell application "System Events"
-    if exists (process "Spotify") then
-        tell application "Spotify"
-            try
-                set pState to player state as string
-                if pState is "playing" or pState is "paused" then
-                    set trkName to name of current track
-                    set trkArtist to artist of current track
-                    set trkAlbum to album of current track
-                    set trkDuration to (duration of current track) / 1000.0
-                    set trkPos to player position
-                    set trkArt to artwork url of current track
-                    return pState & "|||" & trkName & "|||" & trkArtist & "|||" & trkAlbum & "|||" & trkPos & "|||" & trkDuration & "|||" & trkArt
-                else
-                    return "stopped"
-                end if
-            on error
-                return "error"
-            end try
-        end tell
-    else
-        return "not_running"
-    end if
+tell application "Spotify"
+    try
+        set pState to player state as string
+        if pState is "playing" or pState is "paused" then
+            set trkName to name of current track
+            set trkArtist to artist of current track
+            set trkAlbum to album of current track
+            set trkDuration to (duration of current track) / 1000.0
+            set trkPos to player position
+            set trkArt to artwork url of current track
+            return pState & "|||" & trkName & "|||" & trkArtist & "|||" & trkAlbum & "|||" & trkPos & "|||" & trkDuration & "|||" & trkArt
+        else
+            return "stopped"
+        end if
+    on error
+        return "error"
+    end try
 end tell
     `;
 
     const raw = await this.runScript(script);
-    if (!raw || raw === 'not_running' || raw === 'stopped' || raw === 'error') {
+    if (!raw || raw === 'stopped' || raw === 'error' || !raw.includes('|||')) {
       return null;
     }
 
@@ -58,35 +67,43 @@ end tell
     if (parts.length < 5) return null;
 
     const [state, title, artist, album, positionStr, durationStr, artwork] = parts;
-    const position = parseFloat(positionStr) || 0;
-    const duration = parseFloat(durationStr) || 0;
+    const position = parseFloat((positionStr || '').replace(',', '.')) || 0;
+    const duration = parseFloat((durationStr || '').replace(',', '.')) || 0;
 
     return {
       source: 'spotify',
       state: state.toLowerCase(),
-      title: title.trim(),
-      artist: artist.trim(),
+      title: (title || '').trim(),
+      artist: (artist || '').trim(),
       album: (album || '').trim(),
       position,
       duration,
-      artwork: (artwork && artwork !== 'missing value') ? artwork : null,
+      artwork: (artwork && artwork !== 'missing value') ? artwork.trim() : null,
       timestamp: Date.now()
     };
   }
 
   static async playPause() {
+    const running = await this.isRunning();
+    if (!running) return null;
     return this.runScript('tell application "Spotify" to playpause');
   }
 
   static async next() {
+    const running = await this.isRunning();
+    if (!running) return null;
     return this.runScript('tell application "Spotify" to next track');
   }
 
   static async previous() {
+    const running = await this.isRunning();
+    if (!running) return null;
     return this.runScript('tell application "Spotify" to previous track');
   }
 
   static async seek(seconds) {
+    const running = await this.isRunning();
+    if (!running) return null;
     return this.runScript(`tell application "Spotify" to set player position to (player position + (${seconds}))`);
   }
 }

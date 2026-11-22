@@ -4,12 +4,14 @@ contextBridge.exposeInMainWorld('notchLyricsAPI', {
   // Event listeners
   onTrackUpdate: (callback) => ipcRenderer.on('tracker-update', (event, data) => callback(data)),
   onIdle: (callback) => ipcRenderer.on('tracker-idle', (event, data) => callback(data)),
+  onOffsetUpdate: (callback) => ipcRenderer.on('offset-updated', (event, offset) => callback(offset)),
 
   // Controls
   playPause: () => ipcRenderer.invoke('player-playpause'),
   nextTrack: () => ipcRenderer.invoke('player-next'),
   prevTrack: () => ipcRenderer.invoke('player-prev'),
   setOffset: (offset) => ipcRenderer.invoke('set-offset', offset),
+  getOffset: () => ipcRenderer.invoke('get-offset'),
 
   // Window actions
   setWindowSize: (width, height) => ipcRenderer.invoke('set-window-size', { width, height }),

@@ -6,7 +6,54 @@
   "scripts": {
     "start": "electron .",
     "web": "node server.js",
-    "dev": "electron ."
+    "dev": "electron .",
+    "dist": "electron-builder --mac",
+    "dist:arm64": "electron-builder --mac --arm64",
+    "dist:universal": "electron-builder --mac --universal"
+  },
+  "build": {
+    "appId": "com.forvala.notchvala",
+    "productName": "NotchVala",
+    "copyright": "Copyright © 2026 Fathan Orvala",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "services/**/*",
+      "ui/**/*",
+      "assets/**/*"
+    ],
+    "mac": {
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.music",
+      "target": [
+        "dmg"
+      ],
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "${productName} ${version}",
+      "icon": "assets/icon.icns",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    }
   },
   "keywords": [
     "lyrics",
@@ -20,6 +67,7 @@
   "author": "Fathan Orvala",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^45.0.0"
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0"
   }
 }

@@ -21,18 +21,16 @@ body {
 .notch-container {
   display: flex;
   align-items: flex-start;
+  justify-content: center;
   position: relative;
   transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
   margin-top: 0;
   box-shadow: none !important;
 }
 
-/* Top Concave Ears - Hidden so top corners touch the top bezel cleanly */
-.notch-ear {
-  display: none !important;
-}
 
-/* Solid Pitch Black Hardware Notch Island - NO SHADOW, Exact Menu Bar Height (30px) */
+
+/* Solid Pitch Black Hardware Notch Island - Attached flush to top bezel, exactly 30px high */
 .notch-island {
   background: #000000;
   border-top-left-radius: 0 !important;
@@ -42,19 +40,17 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
-  -webkit-app-region: drag;
-  cursor: grab;
+  transition: width 0.28s cubic-bezier(0.16, 1, 0.3, 1), height 0.28s cubic-bezier(0.16, 1, 0.3, 1), border-radius 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  -webkit-app-region: no-drag;
+  cursor: pointer;
   width: 340px;
   height: 30px;
-  box-shadow: none !important; /* Zero shadow as requested */
+  box-shadow: none !important; /* Zero shadow as a physical hardware bezel notch */
+  position: relative;
+  z-index: 1;
 }
 
-.notch-island:active {
-  cursor: grabbing;
-}
-
-/* Compact State - Exactly 30px high to match macOS Menu Bar (Zero Offside) */
+/* Compact State - Exactly 30px high to match macOS Menu Bar (Zero Offside into app windows) */
 .compact-view {
   display: flex;
   align-items: center;
@@ -62,13 +58,14 @@ body {
   padding: 0 10px;
   gap: 8px;
   width: 100%;
+  cursor: pointer;
 }
 
 /* Left: Artwork / Forvala Logo (Zoomed & Clean) */
 .artwork-box {
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
   background: #1c1c1e;
   overflow: hidden;
   display: flex;
@@ -166,9 +163,11 @@ body {
 
 .notch-island.expanded {
   width: 460px;
-  height: auto;
-  border-bottom-left-radius: 16px;
-  border-bottom-right-radius: 16px;
+  height: 155px;
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+  border-bottom-left-radius: 18px;
+  border-bottom-right-radius: 18px;
   box-shadow: none !important; /* Zero shadow */
 }
 

@@ -30,7 +30,8 @@
   let isExpanded = false;
   let isPinned = false;
   let isGhost = false;
-  let currentOffset = 0.0;
+  const savedOffset = localStorage.getItem('notch_lyric_offset');
+  let currentOffset = savedOffset !== null ? parseFloat(savedOffset) : 0.8;
   let lastServerState = null;
   let lastLyricText = '';
 
@@ -85,10 +86,21 @@
     if (trackArtist) trackArtist.textContent = track.artist || 'Putar lagu di Spotify atau YouTube';
 
     // Lyric Line
+    const { lyricsInfo } = data;
     const lineText = activeLine ? activeLine.text : (track.title ? `${track.title} – ${track.artist}` : 'Menunggu musik...');
     updateLyricLine(lineText);
 
-    if (nextLyricEl) nextLyricEl.textContent = nextLine ? nextLine.text : '...';
+    if (nextLyricEl) {
+      if (nextLine) {
+        nextLyricEl.textContent = nextLine.text;
+      } else if (lyricsInfo && !lyricsInfo.hasLyrics) {
+        nextLyricEl.textContent = 'Lirik belum tersedia di database';
+      } else if (lyricsInfo && !lyricsInfo.isSynced) {
+        nextLyricEl.textContent = 'Lirik sinkron tidak tersedia';
+      } else {
+        nextLyricEl.textContent = '...';
+      }
+    }
 
     // Time & Scrubber
     if (currentTimeEl) currentTimeEl.textContent = formatTime(track.position);
@@ -156,6 +168,16 @@
     }
   }
 
+  // Click on compact view toggles/pins expand (like Dynamic Island / MediaMate)
+  const compactView = document.querySelector('.compact-view');
+  if (compactView) {
+    compactView.addEventListener('click', (e) => {
+      // Don't toggle if clicking buttons inside
+      if (e.target.closest('button')) return;
+      toggleExpand(!isExpanded, true);
+    });
+  }
+
   // Hover auto-expand
   let hoverTimeout = null;
   notchBar.addEventListener('mouseenter', () => {
@@ -187,7 +209,8 @@
 
   if (offsetMinus) {
     offsetMinus.addEventListener('click', () => {
-      currentOffset = parseFloat((currentOffset - 0.5).toFixed(1));
+      currentOffset = parseFloat((currentOffset - 0.2).toFixed(1));
+      localStorage.setItem('notch_lyric_offset', currentOffset.toString());
       if (offsetDisplay) offsetDisplay.textContent = `${currentOffset >= 0 ? '+' : ''}${currentOffset.toFixed(1)}s`;
       if (isElectron) window.notchLyricsAPI.setOffset(currentOffset);
     });
@@ -195,7 +218,8 @@
 
   if (offsetPlus) {
     offsetPlus.addEventListener('click', () => {
-      currentOffset = parseFloat((currentOffset + 0.5).toFixed(1));
+      currentOffset = parseFloat((currentOffset + 0.2).toFixed(1));
+      localStorage.setItem('notch_lyric_offset', currentOffset.toString());
       if (offsetDisplay) offsetDisplay.textContent = `${currentOffset >= 0 ? '+' : ''}${currentOffset.toFixed(1)}s`;
       if (isElectron) window.notchLyricsAPI.setOffset(currentOffset);
     });
@@ -223,6 +247,22 @@
   if (isElectron) {
     window.notchLyricsAPI.onTrackUpdate(handleStateUpdate);
     window.notchLyricsAPI.onIdle(handleIdle);
+    if (window.notchLyricsAPI.getOffset) {
+      window.notchLyricsAPI.getOffset().then((offset) => {
+        if (typeof offset === 'number') {
+          currentOffset = offset;
+          localStorage.setItem('notch_lyric_offset', offset.toString());
+          if (offsetDisplay) offsetDisplay.textContent = `${currentOffset >= 0 ? '+' : ''}${currentOffset.toFixed(1)}s`;
+        }
+      });
+    }
+    if (window.notchLyricsAPI.onOffsetUpdate) {
+      window.notchLyricsAPI.onOffsetUpdate((offset) => {
+        currentOffset = offset;
+        localStorage.setItem('notch_lyric_offset', offset.toString());
+        if (offsetDisplay) offsetDisplay.textContent = `${currentOffset >= 0 ? '+' : ''}${currentOffset.toFixed(1)}s`;
+      });
+    }
     startInterpolationLoop();
   } else {
     // Browser preview polling

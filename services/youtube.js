@@ -1,15 +1,24 @@
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 
 /**
  * YouTube Browser Service
  * Inspects active YouTube tabs across macOS browsers (Google Chrome, Brave, Safari, Arc, Edge)
+ * Avoids System Events hangs by prechecking processes with pgrep.
  */
 class YouTubeService {
-  static runScript(script) {
+  static runScript(script, timeoutMs = 1500) {
     return new Promise((resolve) => {
-      exec(`osascript -e '${script.replace(/'/g, "'\\''")}'`, (err, stdout) => {
+      execFile('osascript', ['-e', script], { timeout: timeoutMs }, (err, stdout) => {
         if (err) return resolve(null);
-        resolve(stdout.trim());
+        resolve(stdout ? stdout.trim() : null);
+      });
+    });
+  }
+
+  static isProcessRunning(pattern) {
+    return new Promise((resolve) => {
+      execFile('pgrep', ['-f', pattern], (err, stdout) => {
+        resolve(!err && Boolean(stdout && stdout.trim()));
       });
     });
   }
@@ -59,94 +68,94 @@ class YouTubeService {
   }
 
   /**
-   * Find playing YouTube tab across browsers
+   * Find playing YouTube tab across browsers without touching System Events
    */
   static async getCurrentPlayback() {
-    // Check Chrome / Brave / Arc / Edge
-    const script = `
-tell application "System Events"
-    set foundInfo to "NONE"
-    
-    -- Check Google Chrome
-    if exists (process "Google Chrome") then
-        tell application "Google Chrome"
-            repeat with w in windows
-                repeat with t in tabs of w
-                    set tabUrl to URL of t
-                    if tabUrl contains "youtube.com/watch" then
-                        set tabTitle to title of t
-                        -- Try getting currentTime if allowed, otherwise 0
-                        set vidTime to "0"
-                        try
-                            set vidTime to (execute t javascript "document.querySelector('video') ? document.querySelector('video').currentTime : 0") as string
-                        end try
-                        set isPaused to "false"
-                        try
-                            set isPaused to (execute t javascript "document.querySelector('video') ? document.querySelector('video').paused : false") as string
-                        end try
-                        return "FOUND|||" & tabTitle & "|||" & tabUrl & "|||" & vidTime & "|||" & isPaused
-                    end if
-                end repeat
-            end repeat
-        end tell
-    end if
-
-    -- Check Brave Browser
-    if exists (process "Brave Browser") then
-        tell application "Brave Browser"
-            repeat with w in windows
-                repeat with t in tabs of w
-                    set tabUrl to URL of t
-                    if tabUrl contains "youtube.com/watch" then
-                        set tabTitle to title of t
-                        return "FOUND|||" & tabTitle & "|||" & tabUrl & "|||0|||false"
-                    end if
-                end repeat
-            end repeat
-        end tell
-    end if
-
-    -- Check Safari
-    if exists (process "Safari") then
-        tell application "Safari"
-            repeat with w in windows
-                repeat with t in tabs of w
-                    set tabUrl to URL of t
-                    if tabUrl contains "youtube.com/watch" then
-                        set tabTitle to name of t
-                        return "FOUND|||" & tabTitle & "|||" & tabUrl & "|||0|||false"
-                    end if
-                end repeat
-            end repeat
-        end tell
-    end if
-
+    // 1. Google Chrome
+    const hasChrome = await this.isProcessRunning('Google Chrome');
+    if (hasChrome) {
+      const script = `
+tell application "Google Chrome"
+    repeat with w in windows
+        repeat with t in tabs of w
+            set tabUrl to URL of t
+            if tabUrl contains "youtube.com/watch" then
+                set tabTitle to title of t
+                set vidTime to "0"
+                try
+                    set vidTime to (execute t javascript "document.querySelector('video') ? document.querySelector('video').currentTime : 0") as string
+                end try
+                set isPaused to "false"
+                try
+                    set isPaused to (execute t javascript "document.querySelector('video') ? document.querySelector('video').paused : false") as string
+                end try
+                return "FOUND|||" & tabTitle & "|||" & tabUrl & "|||" & vidTime & "|||" & isPaused
+            end if
+        end repeat
+    end repeat
     return "NONE"
 end tell
-    `;
+      `;
+      const raw = await this.runScript(script);
+      if (raw && raw.startsWith('FOUND|||')) {
+        const [, rawTitle, url, timeStr, isPausedStr] = raw.split('|||');
+        const cleaned = this.cleanTitle(rawTitle);
+        const position = parseFloat((timeStr || '').replace(',', '.')) || 0;
+        const isPaused = isPausedStr === 'true';
 
-    const raw = await this.runScript(script);
-    if (!raw || !raw.startsWith('FOUND|||')) {
-      return null;
+        return {
+          source: 'youtube',
+          state: isPaused ? 'paused' : 'playing',
+          title: cleaned.title || rawTitle,
+          artist: cleaned.artist || 'YouTube',
+          query: cleaned.query,
+          rawTitle,
+          url,
+          position,
+          duration: 0,
+          timestamp: Date.now()
+        };
+      }
     }
 
-    const [, rawTitle, url, timeStr, isPausedStr] = raw.split('|||');
-    const cleaned = this.cleanTitle(rawTitle);
-    const position = parseFloat(timeStr) || 0;
-    const isPaused = isPausedStr === 'true';
+    // 2. Brave Browser
+    const hasBrave = await this.isProcessRunning('Brave Browser');
+    if (hasBrave) {
+      const script = `
+tell application "Brave Browser"
+    repeat with w in windows
+        repeat with t in tabs of w
+            set tabUrl to URL of t
+            if tabUrl contains "youtube.com/watch" then
+                set tabTitle to title of t
+                return "FOUND|||" & tabTitle & "|||" & tabUrl & "|||0|||false"
+            end if
+        end repeat
+    end repeat
+    return "NONE"
+end tell
+      `;
+      const raw = await this.runScript(script);
+      if (raw && raw.startsWith('FOUND|||')) {
+        const [, rawTitle, url] = raw.split('|||');
+        const cleaned = this.cleanTitle(rawTitle);
 
-    return {
-      source: 'youtube',
-      state: isPaused ? 'paused' : 'playing',
-      title: cleaned.title || rawTitle,
-      artist: cleaned.artist || 'YouTube',
-      query: cleaned.query,
-      rawTitle,
-      url,
-      position,
-      duration: 0,
-      timestamp: Date.now()
-    };
+        return {
+          source: 'youtube',
+          state: 'playing',
+          title: cleaned.title || rawTitle,
+          artist: cleaned.artist || 'YouTube',
+          query: cleaned.query,
+          rawTitle,
+          url,
+          position: 0,
+          duration: 0,
+          timestamp: Date.now()
+        };
+      }
+    }
+
+    return null;
   }
 }
 

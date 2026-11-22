@@ -10,10 +10,6 @@
   <!-- Physical Apple Hardware Notch Container -->
   <div class="notch-container" id="appContainer">
     
-    <!-- Left Concave Ear (Flared transition into macOS top bezel) -->
-    <svg class="notch-ear left-ear" width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M0 0 C6 0 12 6 12 12 V0 H0 Z" fill="#000000"/>
-    </svg>
 
     <!-- Solid Pitch Black Notch Island -->
     <div class="notch-island" id="notchBar">
@@ -80,10 +76,10 @@
             <span class="upcoming-line" id="nextLyric">...</span>
           </div>
           <div class="footer-tools">
-            <div class="offset-group">
-              <button class="offset-btn" id="offsetMinus">-0.5s</button>
-              <span class="offset-label" id="offsetDisplay">0.0s</span>
-              <button class="offset-btn" id="offsetPlus">+0.5s</button>
+            <div class="offset-group" title="Pengaturan Kecepatan Lirik Muncul (Lead Time)">
+              <button class="offset-btn" id="offsetMinus" title="Muncul lebih lambat (-0.2s)">-0.2s</button>
+              <span class="offset-label" id="offsetDisplay">+0.8s</span>
+              <button class="offset-btn" id="offsetPlus" title="Muncul lebih cepat (+0.2s)">+0.2s</button>
             </div>
             <button class="ghost-btn" id="ghostModeBtn" title="Ghost Mode (Klik Tembus Pandang)">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -96,10 +92,6 @@
 
     </div>
 
-    <!-- Right Concave Ear (Flared transition into macOS top bezel) -->
-    <svg class="notch-ear right-ear" width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M0 12 C0 6 6 0 12 0 H0 V12 Z" fill="#000000"/>
-    </svg>
 
   </div>
 

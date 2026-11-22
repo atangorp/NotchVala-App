@@ -14,7 +14,7 @@ class MediaTracker extends EventEmitter {
     this.timer = null;
     this.currentTrack = null;
     this.currentLyrics = null;
-    this.offset = 0; // lyric timing offset in seconds (+/- user adjustment)
+    this.offset = 0.8; // Lead time offset default: 0.8 detik lebih cepat dari audio
     this.isManualMode = false;
     this.manualTrack = null;
     this.lastState = null;
@@ -120,6 +120,7 @@ class MediaTracker extends EventEmitter {
         const lyrics = await lyricsEngine.getLyrics({
           title: playback.title,
           artist: playback.artist,
+          duration: playback.duration,
           query: playback.query || `${playback.artist} ${playback.title}`
         });
 
