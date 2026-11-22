@@ -4,6 +4,11 @@ const tracker = require('./services/tracker');
 const SpotifyService = require('./services/spotify');
 const lyricsEngine = require('./services/lyricsEngine');
 
+// Performance & Memory optimization: Limit V8 heap to 64MB and disable unnecessary background caches
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=64');
+app.commandLine.appendSwitch('disable-http-cache');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+
 let mainWindow = null;
 let tray = null;
 let isGhostMode = false;
@@ -28,7 +33,7 @@ function createNotchWindow() {
   const initialX = Math.round((screenWidth - compactWidth) / 2);
   const initialY = 0;
 
-  mainWindow = new BrowserWindow({
+  const windowOpts = {
     width: compactWidth,
     height: compactHeight,
     x: initialX,
@@ -39,18 +44,27 @@ function createNotchWindow() {
     resizable: false,
     skipTaskbar: true,
     hasShadow: false, // ZERO SHADOW on window
-    roundedCorners: false, // CRITICAL: Disables macOS Big Sur+ NSWindow corner mask (prevents pill/capsule rounding)
-    type: 'panel', // NSPanel sits flush over macOS top bezel
+    roundedCorners: false, // Disables macOS Big Sur+ NSWindow corner mask
     enableLargerThanScreen: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true
     }
-  });
+  };
 
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  if (process.platform === 'darwin') {
+    windowOpts.type = 'panel'; // NSPanel sits flush over macOS top bezel
+  }
+
+  mainWindow = new BrowserWindow(windowOpts);
+
+  if (process.platform === 'darwin') {
+    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  } else {
+    mainWindow.setAlwaysOnTop(true, 'floating');
+  }
 
   mainWindow.loadFile(path.join(__dirname, 'ui', 'index.html'));
 
@@ -187,13 +201,21 @@ function updateTrayMenu() {
 }
 
 function createTray() {
-  // Use Zoomed/Cropped Forvala logo as native macOS Template Image
-  const trayIconPath = path.join(__dirname, 'assets', 'trayTemplate.png');
   let icon;
   try {
+    let trayIconPath;
+    if (process.platform === 'darwin') {
+      trayIconPath = path.join(__dirname, 'assets', 'trayTemplate.png');
+    } else if (process.platform === 'win32') {
+      trayIconPath = path.join(__dirname, 'assets', 'icon.ico');
+    } else {
+      trayIconPath = path.join(__dirname, 'assets', 'icon.png');
+    }
     icon = nativeImage.createFromPath(trayIconPath);
     if (!icon.isEmpty()) {
-      icon.setTemplateImage(true);
+      if (process.platform === 'darwin') {
+        icon.setTemplateImage(true);
+      }
     } else {
       icon = nativeImage.createFromNamedImage('NSStatusAvailable');
     }

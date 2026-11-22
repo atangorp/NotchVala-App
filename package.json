@@ -9,7 +9,10 @@
     "dev": "electron .",
     "dist": "electron-builder --mac",
     "dist:arm64": "electron-builder --mac --arm64",
-    "dist:universal": "electron-builder --mac --universal"
+    "dist:universal": "electron-builder --mac --universal",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
+    "dist:all": "electron-builder -mwl"
   },
   "build": {
     "appId": "com.forvala.notchvala",
@@ -53,6 +56,27 @@
         "width": 540,
         "height": 380
       }
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "assets/icon.png",
+      "category": "Audio"
     }
   },
   "keywords": [

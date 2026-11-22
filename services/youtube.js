@@ -7,6 +7,7 @@ const { execFile } = require('child_process');
  */
 class YouTubeService {
   static runScript(script, timeoutMs = 1500) {
+    if (process.platform !== 'darwin') return Promise.resolve(null);
     return new Promise((resolve) => {
       execFile('osascript', ['-e', script], { timeout: timeoutMs }, (err, stdout) => {
         if (err) return resolve(null);
@@ -16,6 +17,7 @@ class YouTubeService {
   }
 
   static isProcessRunning(pattern) {
+    if (process.platform !== 'darwin') return Promise.resolve(false);
     return new Promise((resolve) => {
       execFile('pgrep', ['-f', pattern], (err, stdout) => {
         resolve(!err && Boolean(stdout && stdout.trim()));

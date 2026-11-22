@@ -1,30 +1,111 @@
 const { execFile } = require('child_process');
 
 /**
- * Spotify macOS Service via AppleScript
- * Queries native Spotify Desktop client for current track, playback state, and position.
- * Uses direct osascript without System Events to avoid macOS permission hangs.
+ * Spotify Cross-Platform Service
+ * Supports:
+ * - macOS: AppleScript (osascript) with sub-millisecond precision
+ * - Windows: PowerShell Spotify Window Title tracking & Media Keys
+ * - Linux: MPRIS DBus via playerctl
  */
 class SpotifyService {
   /**
-   * Fast check if Spotify is currently running in background (takes ~2ms, no AppleScript permissions needed)
+   * Fast check if Spotify is currently running in background
    */
   static isRunning() {
     return new Promise((resolve) => {
-      execFile('pgrep', ['-x', 'Spotify'], (err, stdout) => {
-        resolve(!err && Boolean(stdout && stdout.trim()));
+      if (process.platform === 'darwin') {
+        execFile('pgrep', ['-x', 'Spotify'], (err, stdout) => {
+          resolve(!err && Boolean(stdout && stdout.trim()));
+        });
+      } else if (process.platform === 'win32') {
+        execFile('tasklist', ['/fi', 'imagename eq Spotify.exe'], (err, stdout) => {
+          resolve(!err && Boolean(stdout && stdout.includes('Spotify.exe')));
+        });
+      } else if (process.platform === 'linux') {
+        execFile('pgrep', ['-x', 'spotify'], (err, stdout) => {
+          resolve(!err && Boolean(stdout && stdout.trim()));
+        });
+      } else {
+        resolve(false);
+      }
+    });
+  }
+
+  /**
+   * Execute AppleScript string asynchronously with strict timeout (macOS only)
+   */
+  static runScript(script, timeoutMs = 1500) {
+    if (process.platform !== 'darwin') return Promise.resolve(null);
+    return new Promise((resolve) => {
+      execFile('osascript', ['-e', script], { timeout: timeoutMs }, (err, stdout) => {
+        if (err) return resolve(null);
+        resolve(stdout ? stdout.trim() : null);
       });
     });
   }
 
   /**
-   * Execute AppleScript string asynchronously with strict timeout
+   * Windows Spotify Window Title query via PowerShell
    */
-  static runScript(script, timeoutMs = 1500) {
+  static getWindowsPlayback() {
     return new Promise((resolve) => {
-      execFile('osascript', ['-e', script], { timeout: timeoutMs }, (err, stdout) => {
-        if (err) return resolve(null);
-        resolve(stdout ? stdout.trim() : null);
+      const psCommand = `
+        $p = Get-Process -Name spotify -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle.Length -gt 0 }
+        if ($p) {
+          Write-Output ($p | Select-Object -First 1).MainWindowTitle
+        } else {
+          Write-Output "NONE"
+        }
+      `;
+      execFile('powershell', ['-NoProfile', '-Command', psCommand], { timeout: 1500 }, (err, stdout) => {
+        if (err || !stdout) return resolve(null);
+        const winTitle = stdout.trim();
+        if (!winTitle || winTitle === 'NONE' || winTitle === 'Spotify' || winTitle === 'Spotify Free' || winTitle === 'Spotify Premium') {
+          return resolve(null);
+        }
+        let artist = '';
+        let title = winTitle;
+        if (winTitle.includes(' - ')) {
+          const parts = winTitle.split(' - ');
+          artist = parts[0].trim();
+          title = parts.slice(1).join(' - ').trim();
+        }
+        resolve({
+          source: 'spotify',
+          state: 'playing',
+          title,
+          artist,
+          album: '',
+          position: 0,
+          duration: 0,
+          artwork: null,
+          timestamp: Date.now()
+        });
+      });
+    });
+  }
+
+  /**
+   * Linux Spotify query via playerctl (MPRIS DBus)
+   */
+  static getLinuxPlayback() {
+    return new Promise((resolve) => {
+      execFile('playerctl', ['-p', 'spotify', 'metadata', '--format', '{{status}}|||{{title}}|||{{artist}}|||{{album}}|||{{position}}|||{{mpris:length}}|||{{mpris:artUrl}}'], { timeout: 1500 }, (err, stdout) => {
+        if (err || !stdout) return resolve(null);
+        const parts = stdout.trim().split('|||');
+        if (parts.length < 3) return resolve(null);
+        const [status, title, artist, album, posUs, lenUs, artwork] = parts;
+        resolve({
+          source: 'spotify',
+          state: (status || 'playing').toLowerCase(),
+          title: (title || '').trim(),
+          artist: (artist || '').trim(),
+          album: (album || '').trim(),
+          position: (parseFloat(posUs) || 0) / 1000000,
+          duration: (parseFloat(lenUs) || 0) / 1000000,
+          artwork: artwork || null,
+          timestamp: Date.now()
+        });
       });
     });
   }
@@ -36,6 +117,13 @@ class SpotifyService {
   static async getCurrentPlayback() {
     const running = await this.isRunning();
     if (!running) return null;
+
+    if (process.platform === 'win32') {
+      return this.getWindowsPlayback();
+    }
+    if (process.platform === 'linux') {
+      return this.getLinuxPlayback();
+    }
 
     const script = `
 tell application "Spotify"
@@ -86,25 +174,51 @@ end tell
   static async playPause() {
     const running = await this.isRunning();
     if (!running) return null;
-    return this.runScript('tell application "Spotify" to playpause');
+    if (process.platform === 'darwin') {
+      return this.runScript('tell application "Spotify" to playpause');
+    } else if (process.platform === 'win32') {
+      const ps = `(New-Object -ComObject WScript.Shell).SendKeys([char]179)`;
+      return new Promise((res) => execFile('powershell', ['-NoProfile', '-Command', ps], () => res(true)));
+    } else if (process.platform === 'linux') {
+      return new Promise((res) => execFile('playerctl', ['-p', 'spotify', 'play-pause'], () => res(true)));
+    }
   }
 
   static async next() {
     const running = await this.isRunning();
     if (!running) return null;
-    return this.runScript('tell application "Spotify" to next track');
+    if (process.platform === 'darwin') {
+      return this.runScript('tell application "Spotify" to next track');
+    } else if (process.platform === 'win32') {
+      const ps = `(New-Object -ComObject WScript.Shell).SendKeys([char]176)`;
+      return new Promise((res) => execFile('powershell', ['-NoProfile', '-Command', ps], () => res(true)));
+    } else if (process.platform === 'linux') {
+      return new Promise((res) => execFile('playerctl', ['-p', 'spotify', 'next'], () => res(true)));
+    }
   }
 
   static async previous() {
     const running = await this.isRunning();
     if (!running) return null;
-    return this.runScript('tell application "Spotify" to previous track');
+    if (process.platform === 'darwin') {
+      return this.runScript('tell application "Spotify" to previous track');
+    } else if (process.platform === 'win32') {
+      const ps = `(New-Object -ComObject WScript.Shell).SendKeys([char]177)`;
+      return new Promise((res) => execFile('powershell', ['-NoProfile', '-Command', ps], () => res(true)));
+    } else if (process.platform === 'linux') {
+      return new Promise((res) => execFile('playerctl', ['-p', 'spotify', 'previous'], () => res(true)));
+    }
   }
 
   static async seek(seconds) {
     const running = await this.isRunning();
     if (!running) return null;
-    return this.runScript(`tell application "Spotify" to set player position to (player position + (${seconds}))`);
+    if (process.platform === 'darwin') {
+      return this.runScript(`tell application "Spotify" to set player position to (player position + (${seconds}))`);
+    } else if (process.platform === 'linux') {
+      return new Promise((res) => execFile('playerctl', ['-p', 'spotify', 'position', `${seconds}+`], () => res(true)));
+    }
+    return null;
   }
 }
 

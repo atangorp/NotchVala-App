@@ -10,8 +10,10 @@ const lyricsEngine = require('./lyricsEngine');
 class MediaTracker extends EventEmitter {
   constructor() {
     super();
-    this.pollInterval = 750; // ms
+    this.pollInterval = 800; // ms when playing
+    this.idleInterval = 2500; // ms when idle to save CPU & battery
     this.timer = null;
+    this.isRunning = false;
     this.currentTrack = null;
     this.currentLyrics = null;
     this.offset = 0.8; // Lead time offset default: 0.8 detik lebih cepat dari audio
@@ -21,16 +23,30 @@ class MediaTracker extends EventEmitter {
   }
 
   start() {
-    if (this.timer) return;
-    this.poll();
-    this.timer = setInterval(() => this.poll(), this.pollInterval);
+    if (this.isRunning) return;
+    this.isRunning = true;
+    this.scheduleNext(100);
   }
 
   stop() {
+    this.isRunning = false;
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
     }
+  }
+
+  scheduleNext(delay) {
+    if (!this.isRunning) return;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(async () => {
+      await this.poll();
+      // Adaptive interval: 800ms when playing, 2500ms when idle/paused
+      const isActivelyPlaying = (this.currentTrack && this.currentTrack.state === 'playing') ||
+                                (this.isManualMode && this.manualTrack && this.manualTrack.state === 'playing');
+      const nextDelay = isActivelyPlaying ? this.pollInterval : this.idleInterval;
+      this.scheduleNext(nextDelay);
+    }, delay);
   }
 
   setOffset(offsetSeconds) {
