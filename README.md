@@ -20,11 +20,13 @@ Banyak aplikasi media bar atau notch di macOS (seperti NotchBox, MediaMate, dll)
 
 ---
 
-## 📦 Download & Install (macOS)
-Bagi pengguna yang ingin langsung menginstal tanpa perlu Node.js:
-1. Unduh installer **`NotchVala-1.0.0-arm64.dmg`** dari [Halaman Releases](https://github.com/atangorp/NotchVala/releases).
-2. Buka file `.dmg` lalu geser (drag & drop) icon **NotchVala** ke folder **Applications**.
-3. Buka NotchVala dari Applications / Launchpad.
+## 📦 Download & Install (macOS & Windows)
+Bagi pengguna yang ingin langsung menginstal tanpa perlu install Node.js:
+Kunjungi **[Halaman GitHub Releases](https://github.com/atangorp/NotchVala/releases)**:
+- 🍏 **macOS (Apple Silicon)**: Unduh **`NotchVala-1.0.0-arm64.dmg`**, buka file lalu drag & drop ke folder **Applications**.
+- 🪟 **Windows (10/11)**: 
+  - **Installer**: Unduh **`NotchVala.Setup.1.0.0.exe`** (dengan shortcut Desktop & Start Menu).
+  - **Portable**: Unduh **`NotchVala.1.0.0.exe`** (langsung klik dan jalankan tanpa perlu install).
 
 ---
 
